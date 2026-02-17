@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 人相性格診断 | あなたの運命を読み解く</title>
+    
+    <!-- ホーム画面用のアイコン設定 -->
+    <!-- GitHubのリポジトリ直下にある icon.svg を読み込みます -->
+    <link rel="icon" type="image/svg+xml" href="/icon.svg">
+    <link rel="apple-touch-icon" href="/icon.svg">
+    
+    <!-- PWA用のメタタグ (iOS/Android対応) -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="AI人相鑑定">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap');
+        
+        body {
+            font-family: 'Noto Sans JP', sans-serif;
+            background-color: #0f172a;
+            color: #f1f5f9;
+        }
+
+        .video-container {
+            position: relative;
+            overflow: hidden;
+            border-radius: 1.5rem;
+            box-shadow: 0 0 40px rgba(16, 185, 129, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        #video {
+            width: 100%;
+            height: auto;
+            transform: scaleX(-1);
+            background: #000;
+        }
+
+        .scan-line {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background: linear-gradient(to right, transparent, #10B981, transparent);
+            box-shadow: 0 0 20px 5px rgba(16, 185, 129, 0.6);
+            animation: scan 3s infinite ease-in-out;
+            display: none;
+            z-index: 10;
+        }
+
+        @keyframes scan {
+            0% { top: 0%; opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { top: 100%; opacity: 0; }
+        }
+
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .loading-dots:after {
+            content: '.';
+            animation: dots 1.5s steps(5, end) infinite;
+        }
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60% { content: '...'; }
+            80%, 100% { content: ''; }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center p-4 md:p-8">
+
+    <div class="max-w-md w-full space-y-8">
+        <!-- ヘッダー：SVGアイコンを統合 -->
+        <header class="text-center space-y-4">
+            <div class="flex justify-center">
+                <div class="w-28 h-28 relative">
+                    <!-- GitHub上のicon.svgを表示するimgタグ（キャッシュ対策に?v=1付与） -->
+                    <img src="/icon.svg?v=1" alt="App Icon" class="w-full h-full drop-shadow-2xl">
+                </div>
+            </div>
+            <h1 class="text-3xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-blue-500">
+                AI 人相鑑定
+            </h1>
+            <p class="text-slate-400 text-sm">カメラに顔を映して、運命の解析を開始してください</p>
+        </header>
+
+        <!-- カメラセクション -->
+        <div class="video-container glass-panel aspect-[4/5] flex items-center justify-center relative">
+            <video id="video" autoplay playsinline muted class="rounded-2xl"></video>
+            <canvas id="canvas" class="hidden"></canvas>
+            <div id="scanLine" class="scan-line"></div>
+            
+            <div id="guide" class="absolute border-2 border-emerald-500/20 rounded-full w-64 h-80 pointer-events-none flex flex-col items-center justify-end pb-8">
+                <span class="text-[10px] text-emerald-400/50 font-bold uppercase tracking-widest">Digital Analysis Zone</span>
+            </div>
+        </div>
+
+        <div class="flex flex-col gap-4">
+            <button id="captureBtn" class="w-full bg-gradient-to-r from-emerald-500 to-blue-600 hover:scale-[1.02] text-white font-bold py-5 rounded-2xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-3 text-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                </svg>
+                運命をスキャンする
+            </button>
+        </div>
+
+        <!-- ローディング -->
+        <div id="loading" class="hidden flex flex-col items-center justify-center py-8 space-y-4">
+            <div class="relative w-12 h-12">
+                <div class="absolute inset-0 rounded-full border-4 border-emerald-500/20"></div>
+                <div class="absolute inset-0 rounded-full border-4 border-t-emerald-500 animate-spin"></div>
+            </div>
+            <p class="text-emerald-400 font-bold loading-dots tracking-tighter">AIが表情の深層を解析中</p>
+        </div>
+
+        <!-- 結果表示 -->
+        <div id="resultArea" class="hidden glass-panel rounded-3xl p-6 border border-emerald-500/20 shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div class="flex items-center gap-3 mb-6 border-b border-white/10 pb-4">
+                <h2 class="text-xl font-bold text-emerald-400">鑑定レポート</h2>
+            </div>
+            <div id="diagnosisContent" class="space-y-4 text-slate-200 leading-relaxed whitespace-pre-wrap italic">
+                <!-- ここに結果が表示されます -->
+            </div>
+            <button id="resetBtn" class="mt-8 w-full py-3 bg-white/5 hover:bg-white/10 rounded-xl text-slate-400 text-sm transition-all border border-white/5">
+                新しく鑑定する
+            </button>
+        </div>
+        
+        <footer class="text-center pb-8 opacity-40">
+            <p class="text-[10px] uppercase tracking-[0.2em]">Authentic AI Physiognomy Analyzer</p>
+        </footer>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const captureBtn = document.getElementById('captureBtn');
+        const resultArea = document.getElementById('resultArea');
+        const diagnosisContent = document.getElementById('diagnosisContent');
+        const loading = document.getElementById('loading');
+        const scanLine = document.getElementById('scanLine');
+        const resetBtn = document.getElementById('resetBtn');
+
+        async function initCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'user', width: { ideal: 720 } }, 
+                    audio: false 
+                });
+                video.srcObject = stream;
+            } catch (err) {
+                alert("カメラを起動できませんでした。ブラウザの設定で許可してください。");
+            }
+        }
+
+        async function analyzeFace(base64Image) {
+            try {
+                const response = await fetch('/api/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image: base64Image })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || "通信エラーが発生しました。");
+                }
+                
+                const data = await response.json();
+                return data.text;
+            } catch (err) {
+                console.error(err);
+                return `エラー: ${err.message}`;
+            }
+        }
+
+        captureBtn.addEventListener('click', async () => {
+            captureBtn.style.display = 'none';
+            scanLine.style.display = 'block';
+            loading.classList.remove('hidden');
+            resultArea.classList.add('hidden');
+
+            const context = canvas.getContext('2d');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.translate(canvas.width, 0);
+            context.scale(-1, 1);
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const base64Image = canvas.toDataURL('image/png').split(',')[1];
+
+            const diagnosis = await analyzeFace(base64Image);
+            
+            loading.classList.add('hidden');
+            scanLine.style.display = 'none';
+            diagnosisContent.textContent = diagnosis;
+            resultArea.classList.remove('hidden');
+            resultArea.scrollIntoView({ behavior: 'smooth' });
+        });
+
+        resetBtn.addEventListener('click', () => {
+            resultArea.classList.add('hidden');
+            captureBtn.style.display = 'flex';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+
+        window.onload = initCamera;
+    </script>
+</body>
+</html>
