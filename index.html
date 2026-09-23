@@ -76,6 +76,29 @@
             60% { content: '...'; }
             80%, 100% { content: ''; }
         }
+
+        #diagnosisContent {
+            font-style: normal;
+        }
+        #diagnosisContent h3 {
+            margin-top: 1.25rem;
+            margin-bottom: 0.5rem;
+            font-size: 1rem;
+            font-weight: 700;
+            font-style: normal;
+            color: #6ee7b7;
+        }
+        #diagnosisContent h3:first-child {
+            margin-top: 0;
+        }
+        #diagnosisContent p {
+            margin-bottom: 0.75rem;
+        }
+        #captureBtn:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+            transform: none;
+        }
     </style>
 </head>
 <body class="min-h-screen flex flex-col items-center p-4 md:p-8">
@@ -106,8 +129,10 @@
             </div>
         </div>
 
+        <p id="cameraStatus" class="hidden text-center text-sm text-rose-300"></p>
+
         <div class="flex flex-col gap-4">
-            <button id="captureBtn" class="w-full bg-gradient-to-r from-emerald-500 to-blue-600 hover:scale-[1.02] text-white font-bold py-5 rounded-2xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-3 text-lg">
+            <button id="captureBtn" disabled class="w-full bg-gradient-to-r from-emerald-500 to-blue-600 hover:scale-[1.02] text-white font-bold py-5 rounded-2xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-3 text-lg">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
                 </svg>
@@ -129,7 +154,7 @@
             <div class="flex items-center gap-3 mb-6 border-b border-white/10 pb-4">
                 <h2 class="text-xl font-bold text-emerald-400">鑑定レポート</h2>
             </div>
-            <div id="diagnosisContent" class="space-y-4 text-slate-200 leading-relaxed whitespace-pre-wrap italic">
+            <div id="diagnosisContent" class="space-y-4 text-slate-200 leading-relaxed">
                 <!-- ここに結果が表示されます -->
             </div>
             <button id="resetBtn" class="mt-8 w-full py-3 bg-white/5 hover:bg-white/10 rounded-xl text-slate-400 text-sm transition-all border border-white/5">
@@ -151,66 +176,165 @@
         const loading = document.getElementById('loading');
         const scanLine = document.getElementById('scanLine');
         const resetBtn = document.getElementById('resetBtn');
+        const cameraStatus = document.getElementById('cameraStatus');
+
+        function showStatus(message) {
+            if (!message) {
+                cameraStatus.textContent = '';
+                cameraStatus.classList.add('hidden');
+                return;
+            }
+            cameraStatus.textContent = message;
+            cameraStatus.classList.remove('hidden');
+        }
+
+        function escapeHtml(value) {
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+
+        function renderReport(text) {
+            const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+            const html = [];
+            let paragraph = [];
+
+            function flushParagraph() {
+                if (!paragraph.length) return;
+                const body = paragraph.join('<br>');
+                html.push('<p>' + body + '</p>');
+                paragraph = [];
+            }
+
+            lines.forEach((line) => {
+                const trimmed = line.trim();
+                const heading = trimmed
+                    .replace(/^#{1,6}\s*/, '')
+                    .replace(/^\*\*(.+)\*\*$/, '$1')
+                    .replace(/^\*(.+)\*$/, '$1');
+                const namedHeading = /^(顔から読み取れる性格|いまの運気|これからへのアドバイス)[：:]?$/.test(heading);
+                const numberedHeading = /^[1-3１-３][.．、]\s*\S/.test(trimmed) && trimmed.length <= 40;
+                const isHeading = /^#{1,6}\s+\S/.test(trimmed) || namedHeading || numberedHeading;
+                if (!trimmed) {
+                    flushParagraph();
+                    return;
+                }
+                if (isHeading) {
+                    flushParagraph();
+                    const label = heading.replace(/^[1-3１-３][.．、]\s*/, '');
+                    html.push('<h3>' + escapeHtml(label) + '</h3>');
+                    return;
+                }
+                paragraph.push(escapeHtml(trimmed).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>'));
+            });
+            flushParagraph();
+            diagnosisContent.innerHTML = html.join('') || '<p>鑑定結果が得られませんでした。</p>';
+        }
 
         async function initCamera() {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                showStatus('このブラウザではカメラを使えません。');
+                return;
+            }
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: 'user', width: { ideal: 720 } }, 
-                    audio: false 
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'user', width: { ideal: 720 } },
+                    audio: false
                 });
                 video.srcObject = stream;
+                await video.play();
+                const enable = () => {
+                    if (video.videoWidth > 0) captureBtn.disabled = false;
+                };
+                if (video.readyState >= 1) enable();
+                video.addEventListener('loadedmetadata', enable, { once: true });
+                showStatus('');
             } catch (err) {
-                alert("カメラを起動できませんでした。ブラウザの設定で許可してください。");
+                captureBtn.disabled = true;
+                showStatus('カメラを起動できませんでした。ブラウザのカメラ許可を確認してください。');
             }
         }
 
+        function captureFrame() {
+            const width = video.videoWidth;
+            const height = video.videoHeight;
+            if (!width || !height) return null;
+            const maxWidth = 960;
+            const scale = width > maxWidth ? maxWidth / width : 1;
+            canvas.width = Math.round(width * scale);
+            canvas.height = Math.round(height * scale);
+            const context = canvas.getContext('2d');
+            context.setTransform(-1, 0, 0, 1, canvas.width, 0);
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            const base64 = dataUrl.split(',')[1];
+            return base64 || null;
+        }
+
         async function analyzeFace(base64Image) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 50000);
             try {
                 const response = await fetch('/api/analyze', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ image: base64Image })
+                    body: JSON.stringify({ image: base64Image, mimeType: 'image/jpeg' }),
+                    signal: controller.signal
                 });
-
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || "通信エラーが発生しました。");
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok || !data.text) {
+                    throw new Error(data.error || '通信エラーが発生しました。');
                 }
-                
-                const data = await response.json();
                 return data.text;
             } catch (err) {
-                console.error(err);
-                return `エラー: ${err.message}`;
+                if (err && err.name === 'AbortError') {
+                    throw new Error('鑑定に時間がかかりすぎました。もう一度お試しください。');
+                }
+                throw err;
+            } finally {
+                clearTimeout(timer);
             }
         }
 
+        function showResult(message, isError) {
+            loading.classList.add('hidden');
+            scanLine.style.display = 'none';
+            if (isError) {
+                diagnosisContent.innerHTML = '<p>' + escapeHtml(message) + '</p>';
+            } else {
+                renderReport(message);
+            }
+            resultArea.classList.remove('hidden');
+            resultArea.scrollIntoView({ behavior: 'smooth' });
+        }
+
         captureBtn.addEventListener('click', async () => {
+            const base64Image = captureFrame();
+            if (!base64Image) {
+                showStatus('カメラの映像がまだ準備できていません。少し待ってから、もう一度押してください。');
+                return;
+            }
+            captureBtn.disabled = true;
             captureBtn.style.display = 'none';
+            showStatus('');
             scanLine.style.display = 'block';
             loading.classList.remove('hidden');
             resultArea.classList.add('hidden');
 
-            const context = canvas.getContext('2d');
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            context.translate(canvas.width, 0);
-            context.scale(-1, 1);
-            context.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const base64Image = canvas.toDataURL('image/png').split(',')[1];
-
-            const diagnosis = await analyzeFace(base64Image);
-            
-            loading.classList.add('hidden');
-            scanLine.style.display = 'none';
-            diagnosisContent.textContent = diagnosis;
-            resultArea.classList.remove('hidden');
-            resultArea.scrollIntoView({ behavior: 'smooth' });
+            try {
+                const diagnosis = await analyzeFace(base64Image);
+                showResult(diagnosis, false);
+            } catch (err) {
+                showResult(err.message || '鑑定できませんでした。', true);
+            }
         });
 
         resetBtn.addEventListener('click', () => {
             resultArea.classList.add('hidden');
+            diagnosisContent.innerHTML = '';
             captureBtn.style.display = 'flex';
+            captureBtn.disabled = !(video.videoWidth > 0);
             window.scrollTo({ top: 0, behavior: 'smooth' });
         });
 
