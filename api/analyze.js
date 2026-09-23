@@ -31,12 +31,13 @@ export default async function handler(req, res) {
     return res.status(413).json({ error: "画像が大きすぎます。もう一度お試しください。" });
   }
 
-  const prompt = `あなたは熟練の人相学鑑定師です。この写真の顔から、日本語で鑑定してください。
-次の3つの見出しを、それぞれ独立した行として書いてください。
+  const prompt = `これは利用者が自分でカメラに向かって撮った写真です。娯楽としての人相占いをしてください。身元の特定や医療診断はしないでください。
+顔が少しでも写っていれば、背景の説明では断らず、その顔を読んでください。顔がまったくないときだけ、正面を向くよう短く案内してください。
+次の3つの見出しだけを、それぞれ独立した行として書いてください。見出しに # や * は付けないでください。
 顔から読み取れる性格
 いまの運気
 これからへのアドバイス
-見出しの前後に # や * は付けないでください。各見出しのあとに、丁寧な語りかける口調で2〜3段落書いてください。医療診断や本人の特定はしないでください。`;
+各見出しのあとに、丁寧な語りかける口調で2段落書いてください。`;
 
   const payload = {
     contents: [{
@@ -64,10 +65,11 @@ export default async function handler(req, res) {
 
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const detail = result?.error?.message || "";
-      const friendly = /model/i.test(detail)
-        ? "鑑定用のAIモデルに接続できませんでした。しばらくしてから、もう一度お試しください。"
-        : "鑑定サービスに接続できませんでした。しばらくしてから、もう一度お試しください。";
+      const detail = String(result?.error?.message || "").slice(0, 300);
+      console.error("gemini_error", response.status, result?.error?.status || "", detail);
+      const friendly = response.status === 429 || response.status === 503
+        ? "いま鑑定が混み合っています。少し待ってから、もう一度お試しください。"
+        : "鑑定できませんでした。顔が映っていることを確認して、もう一度お試しください。";
       return res.status(502).json({ error: friendly });
     }
 
