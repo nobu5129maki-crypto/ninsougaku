@@ -1,0 +1,3 @@
+# 実キーと Basic 認証のパスワードファイルはコミットしない
+config.php
+.htpasswd

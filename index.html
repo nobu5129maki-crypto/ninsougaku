@@ -5,10 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI 人相性格診断 | あなたの運命を読み解く</title>
     
-    <!-- ホーム画面用のアイコン設定 -->
-    <!-- GitHubのリポジトリ直下にある icon.svg を読み込みます -->
-    <link rel="icon" type="image/svg+xml" href="/icon.svg">
-    <link rel="apple-touch-icon" href="/icon.svg">
+    <!-- 同じフォルダの icon.svg。ドメイン直下でもサブフォルダでも相対パスで読む -->
+    <link rel="icon" type="image/svg+xml" href="icon.svg">
+    <link rel="apple-touch-icon" href="icon.svg">
     
     <!-- PWA用のメタタグ (iOS/Android対応) -->
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -108,8 +107,8 @@
         <header class="text-center space-y-4">
             <div class="flex justify-center">
                 <div class="w-28 h-28 relative">
-                    <!-- GitHub上のicon.svgを表示するimgタグ（キャッシュ対策に?v=1付与） -->
-                    <img src="/icon.svg?v=1" alt="App Icon" class="w-full h-full drop-shadow-2xl">
+                    <!-- 同じフォルダの icon.svg（キャッシュ対策に ?v=1） -->
+                    <img src="icon.svg?v=1" alt="App Icon" class="w-full h-full drop-shadow-2xl">
                 </div>
             </div>
             <h1 class="text-3xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-blue-500">
@@ -276,7 +275,8 @@
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(), 50000);
             try {
-                const response = await fetch('/api/analyze', {
+                // ドメイン直下でもサブフォルダでも動く相対パス。ルート絶対パスは使わない
+                const response = await fetch('api/analyze.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ image: base64Image, mimeType: 'image/jpeg' }),
