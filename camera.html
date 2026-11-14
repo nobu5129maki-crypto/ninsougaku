@@ -153,37 +153,35 @@
             }
             const guide = document.getElementById('guide');
             guide.style.display = 'flex';
-            const candidates = [];
+            let back = '';
             try {
-                candidates.push(decodeURIComponent(location.hash.slice(1)));
-            } catch (err) {}
-            try {
-                if (document.referrer) candidates.push(new URL(document.referrer).origin);
-            } catch (err) {}
-            let target = '';
-            candidates.forEach((value) => {
-                if (!target && /^https?:\/\/[A-Za-z0-9.-]+(?::[0-9]{1,5})?$/.test(value)) target = value;
-            });
-            if (!target) {
-                say('撮影結果の戻し先が分かりません。元の画面から開き直してください。');
-                return;
-            }
-            if (!window.opener || window.opener.closed) {
-                say('元の画面が見つかりません。元の画面から開き直してください。');
-                return;
-            }
-            try {
-                window.opener.postMessage({ type: 'ninsougaku-shot', image: base64 }, target);
+                back = decodeURIComponent(location.hash.slice(1));
             } catch (err) {
-                say('撮影結果を戻せませんでした。元の画面から開き直してください。');
+                back = '';
+            }
+            if (!/^https?:\/\/[A-Za-z0-9.-]+(?::[0-9]{1,5})?\/(?:[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=%-]*)?$/.test(back)) {
+                try {
+                    if (document.referrer) {
+                        const from = new URL(document.referrer);
+                        if (from.protocol === 'http:' || from.protocol === 'https:') {
+                            back = from.origin + from.pathname;
+                        }
+                    }
+                } catch (err) {
+                    back = '';
+                }
+            }
+            if (!/^https?:\/\//.test(back)) {
+                say('撮影結果の戻し先が分かりません。元の画面から開き直してください。');
                 return;
             }
             if (stream) {
                 stream.getTracks().forEach((track) => track.stop());
             }
-            say('撮影しました。元の画面に戻って、運命をスキャンしてください。');
+            window.name = 'ninsougaku-shot:' + base64;
+            say('撮影しました。鑑定の画面に戻ります。');
             shotBtn.disabled = true;
-            setTimeout(() => window.close(), 400);
+            location.replace(back);
         }
 
         startBtn.addEventListener('click', startCamera);

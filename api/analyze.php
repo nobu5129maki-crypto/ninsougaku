@@ -4,7 +4,7 @@
 // API キーはブラウザへ出さない。公開ディレクトリの外の config.php か環境変数から読む。
 
 ini_set('display_errors', '0');
-@set_time_limit(36);
+@set_time_limit(40);
 ob_start();
 
 function ninsougaku_respond($status, $body)
@@ -33,9 +33,9 @@ function ninsougaku_slice($value, $limit)
 
 function ninsougaku_prompt()
 {
-    return "これは利用者が自分でカメラに向かって撮った写真です。娯楽としての人相占いをしてください。身元の特定や医療診断はしないでください。\n"
-        . "顔が少しでも写っていれば、背景の説明では断らず、その顔を読んでください。顔がまったくないときだけ、正面を向くよう短く案内してください。\n"
-        . "次の3つの見出しだけを、それぞれ独立した行として書いてください。見出しに # や * は付けないでください。\n"
+    return "これは顔写真です。娯楽としての人相占いです。医療診断や身元の特定はしないでください。\n"
+        . "顔が少しでも写っていれば読んでください。顔がまったくないときだけ、正面を向くよう短く案内してください。\n"
+        . "次の3つの見出しだけを、一字も変えず、それぞれ独立した行として書いてください。見出しに # や * は付けないでください。\n"
         . "顔から読み取れる性格\n"
         . "いまの運気\n"
         . "これからへのアドバイス\n"
@@ -180,7 +180,7 @@ function ninsougaku_shrink_jpeg($image)
     }
     $width = imagesx($src);
     $height = imagesy($src);
-    $maxEdge = 640;
+    $maxEdge = 512;
     $long = max($width, $height);
     if ($long > $maxEdge && $long > 0) {
         $scale = $maxEdge / $long;
@@ -192,7 +192,7 @@ function ninsougaku_shrink_jpeg($image)
         $src = $dst;
     }
     ob_start();
-    $wrote = imagejpeg($src, null, 60);
+    $wrote = imagejpeg($src, null, 55);
     $jpeg = ob_get_clean();
     imagedestroy($src);
     if (!$wrote || !is_string($jpeg) || strlen($jpeg) < 80) {
@@ -214,8 +214,9 @@ function ninsougaku_gemini_once($apiKey, $model, $image, $timeout)
             ),
         ),
         'generationConfig' => array(
-            'thinkingConfig' => array('thinkingLevel' => 'low'),
-            'maxOutputTokens' => 1024,
+            'temperature' => 0.4,
+            'maxOutputTokens' => 1200,
+            'thinkingConfig' => array('thinkingBudget' => 0),
         ),
     );
     $body = json_encode($payload, JSON_UNESCAPED_UNICODE);
@@ -307,13 +308,15 @@ if (!function_exists('curl_init')) {
     ninsougaku_respond(500, array('error' => '鑑定中に問題が起きました。少し待ってから、もう一度お試しください。'));
 }
 
-$attempts = array(
-    array('gemini-3.5-flash', 18),
-    array('gemini-3.8-flash', 8),
-);
-$last = array('kind' => 'bad', 'text' => '', 'status' => 0);
-foreach ($attempts as $attempt) {
-    $last = ninsougaku_gemini_once($apiKey, $attempt[0], $image, $attempt[1]);
+$last = ninsougaku_gemini_once($apiKey, 'gemini-2.5-flash', $image, 20);
+if ($last['kind'] === 'ok') {
+    ninsougaku_respond(200, array('text' => $last['text']));
+}
+if ($last['kind'] === 'blocked') {
+    ninsougaku_respond(422, array('error' => 'この画像では鑑定できませんでした。顔がはっきり写るようにして、もう一度お試しください。'));
+}
+if ($last['kind'] === 'busy' || $last['kind'] === 'empty' || $last['kind'] === 'bad') {
+    $last = ninsougaku_gemini_once($apiKey, 'gemini-2.5-flash', $image, 15);
     if ($last['kind'] === 'ok') {
         ninsougaku_respond(200, array('text' => $last['text']));
     }

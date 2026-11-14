@@ -277,12 +277,24 @@
         }
 
         function openViewfinder() {
-            const popup = window.open(VIEWFINDER_URL + '#' + encodeURIComponent(location.origin), 'ninsougaku_viewfinder');
-            if (!popup) {
-                showStatus('撮影画面を開けませんでした。ブラウザのポップアップを許可して、もう一度押してください。');
+            const back = location.href.split('#')[0];
+            location.href = VIEWFINDER_URL + '#' + encodeURIComponent(back);
+        }
+
+        function consumeReturnedShot() {
+            let name = '';
+            try {
+                name = window.name || '';
+            } catch (err) {
                 return;
             }
-            showStatus('枠の中に顔を合わせて撮影してください。撮影すると、この画面に戻ります。');
+            const prefix = 'ninsougaku-shot:';
+            if (name.indexOf(prefix) !== 0) return;
+            const image = name.slice(prefix.length);
+            window.name = '';
+            if (image.length < 100 || image.length > 900000 || !/^[A-Za-z0-9+/=]+$/.test(image)) return;
+            showStill(image);
+            captureBtn.click();
         }
 
         async function initCamera() {
@@ -341,7 +353,7 @@
 
         async function analyzeFace(base64Image) {
             const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 35000);
+            const timer = setTimeout(() => controller.abort(), 45000);
             try {
                 // ドメイン直下でもサブフォルダでも動く相対パス。ルート絶対パスは使わない
                 const response = await fetch('api/analyze.php', {
@@ -421,6 +433,7 @@
                 }
             } catch (err) {}
             initCamera();
+            consumeReturnedShot();
         };
     </script>
 </body>
