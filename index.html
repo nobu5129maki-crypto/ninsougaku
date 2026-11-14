@@ -118,8 +118,26 @@
         #diagnosisContent h3:first-child {
             margin-top: 0;
         }
-        #diagnosisContent p {
+        #diagnosisContent p,
+        #historyText p {
             margin-bottom: 0.75rem;
+        }
+        #historyText h3 {
+            margin-top: 1.25rem;
+            margin-bottom: 0.5rem;
+            font-size: 1rem;
+            font-weight: 700;
+            color: #6ee7b7;
+        }
+        #historyText h3:first-child {
+            margin-top: 0;
+        }
+        .history-thumb {
+            width: 3.25rem;
+            height: 3.25rem;
+            object-fit: cover;
+            border-radius: 0.75rem;
+            background: #020617;
         }
         #captureBtn:disabled {
             opacity: 0.45;
@@ -131,6 +149,7 @@
 <body class="min-h-screen flex flex-col items-center p-4 md:p-8">
 
     <div class="max-w-md w-full space-y-8">
+        <div id="homeArea" class="space-y-8">
         <!-- ヘッダー：SVGアイコンを統合 -->
         <header class="text-center space-y-4">
             <div class="flex justify-center">
@@ -161,6 +180,7 @@
         <p id="cameraStatus" class="hidden text-center text-sm text-rose-300"></p>
 
         <div class="flex flex-col gap-4">
+            <button type="button" id="historyOpen" class="w-full py-3 bg-white/5 hover:bg-white/10 rounded-xl text-slate-300 text-sm transition-all border border-white/10">これまでの鑑定</button>
             <button id="captureBtn" disabled class="w-full bg-gradient-to-r from-emerald-500 to-blue-600 hover:scale-[1.02] text-white font-bold py-5 rounded-2xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-3 text-lg">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
@@ -180,9 +200,10 @@
 
         <!-- 結果表示 -->
         <div id="resultArea" class="hidden glass-panel rounded-3xl p-6 border border-emerald-500/20 shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div class="flex items-center gap-3 mb-6 border-b border-white/10 pb-4">
+            <div class="flex items-center gap-3 mb-4 border-b border-white/10 pb-4">
                 <h2 class="text-xl font-bold text-emerald-400">鑑定レポート</h2>
             </div>
+            <p id="savedNote" class="hidden text-xs text-slate-400 mb-4"></p>
             <div id="diagnosisContent" class="space-y-4 text-slate-200 leading-relaxed">
                 <!-- ここに結果が表示されます -->
             </div>
@@ -190,7 +211,24 @@
                 新しく鑑定する
             </button>
         </div>
-        
+        </div>
+
+        <section id="historyArea" class="hidden glass-panel rounded-3xl p-6 space-y-4">
+            <div class="flex items-center justify-between gap-3">
+                <h2 class="text-xl font-bold text-emerald-400">これまでの鑑定</h2>
+                <button type="button" id="historyClose" class="text-sm text-slate-300 px-3 py-2 rounded-xl bg-white/5 border border-white/10">戻る</button>
+            </div>
+            <p class="text-xs text-slate-400 leading-relaxed">日時と写真と本文は、この端末の中だけに残します。サーバーには貯めません。年ごとに見返せます。</p>
+            <div id="historyList" class="space-y-3 max-h-[70vh] overflow-y-auto"></div>
+        </section>
+
+        <section id="historyDetail" class="hidden glass-panel rounded-3xl p-6 space-y-4">
+            <button type="button" id="historyBack" class="text-sm text-slate-300 px-3 py-2 rounded-xl bg-white/5 border border-white/10">一覧へ</button>
+            <p id="historyWhen" class="text-sm text-emerald-200"></p>
+            <img id="historyPhoto" alt="そのときの顔写真" class="w-full rounded-2xl bg-slate-950">
+            <div id="historyText" class="space-y-4 text-slate-200 leading-relaxed"></div>
+        </section>
+
         <footer class="text-center pb-8 opacity-40">
             <p class="text-[10px] uppercase tracking-[0.2em]">Authentic AI Physiognomy Analyzer</p>
         </footer>
@@ -224,7 +262,8 @@
                 .replace(/>/g, '&gt;');
         }
 
-        function renderReport(text) {
+        function renderReport(text, target) {
+            const box = target || diagnosisContent;
             const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
             const html = [];
             let paragraph = [];
@@ -258,7 +297,159 @@
                 paragraph.push(escapeHtml(trimmed).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>'));
             });
             flushParagraph();
-            diagnosisContent.innerHTML = html.join('') || '<p>鑑定結果が得られませんでした。</p>';
+            box.innerHTML = html.join('') || '<p>鑑定結果が得られませんでした。</p>';
+        }
+
+        const HISTORY_DB = 'ninsougaku-history';
+        const HISTORY_STORE = 'readings';
+        const savedNote = document.getElementById('savedNote');
+        const homeArea = document.getElementById('homeArea');
+        const historyArea = document.getElementById('historyArea');
+        const historyDetail = document.getElementById('historyDetail');
+        const historyList = document.getElementById('historyList');
+        const historyWhen = document.getElementById('historyWhen');
+        const historyPhoto = document.getElementById('historyPhoto');
+        const historyText = document.getElementById('historyText');
+        let historyRecords = [];
+
+        function formatWhen(at) {
+            const date = new Date(at);
+            const weeks = ['日', '月', '火', '水', '木', '金', '土'];
+            const pad = (value) => String(value).padStart(2, '0');
+            return date.getFullYear() + '年' + (date.getMonth() + 1) + '月' + date.getDate() + '日（' + weeks[date.getDay()] + '）' + pad(date.getHours()) + ':' + pad(date.getMinutes());
+        }
+
+        function openHistoryDb() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(HISTORY_DB, 1);
+                request.onupgradeneeded = () => {
+                    const db = request.result;
+                    if (!db.objectStoreNames.contains(HISTORY_STORE)) {
+                        db.createObjectStore(HISTORY_STORE, { keyPath: 'id' });
+                    }
+                };
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error || new Error('history'));
+            });
+        }
+
+        async function saveReading(image, text) {
+            const db = await openHistoryDb();
+            const record = {
+                id: Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+                at: Date.now(),
+                image: image,
+                text: text
+            };
+            await new Promise((resolve, reject) => {
+                const tx = db.transaction(HISTORY_STORE, 'readwrite');
+                tx.objectStore(HISTORY_STORE).put(record);
+                tx.oncomplete = () => resolve();
+                tx.onerror = () => reject(tx.error || new Error('history'));
+            });
+            db.close();
+            return record;
+        }
+
+        async function loadReadings() {
+            const db = await openHistoryDb();
+            const records = await new Promise((resolve, reject) => {
+                const tx = db.transaction(HISTORY_STORE, 'readonly');
+                const request = tx.objectStore(HISTORY_STORE).getAll();
+                request.onsuccess = () => resolve(request.result || []);
+                request.onerror = () => reject(request.error || new Error('history'));
+            });
+            db.close();
+            records.sort((a, b) => b.at - a.at);
+            return records;
+        }
+
+        function showHome() {
+            historyArea.classList.add('hidden');
+            historyDetail.classList.add('hidden');
+            homeArea.classList.remove('hidden');
+        }
+
+        function renderHistoryList(records) {
+            historyList.innerHTML = '';
+            if (!records.length) {
+                const empty = document.createElement('p');
+                empty.className = 'text-sm text-slate-400';
+                empty.textContent = 'まだ鑑定がありません。撮影すると、この端末に日付つきで残ります。';
+                historyList.appendChild(empty);
+                return;
+            }
+            const nowYear = new Date().getFullYear();
+            let shownYear = null;
+            records.forEach((record) => {
+                const year = new Date(record.at).getFullYear();
+                if (year !== shownYear) {
+                    shownYear = year;
+                    const ago = nowYear - year;
+                    const heading = document.createElement('h3');
+                    heading.className = 'text-sm font-bold text-slate-300 pt-2';
+                    heading.textContent = year + '年' + (ago > 0 ? '（' + ago + '年前）' : '（今年）');
+                    historyList.appendChild(heading);
+                }
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'w-full flex items-center gap-3 text-left rounded-2xl bg-slate-950/50 border border-white/10 p-3';
+                button.dataset.id = record.id;
+                if (record.image) {
+                    const thumb = document.createElement('img');
+                    thumb.className = 'history-thumb';
+                    thumb.alt = '';
+                    thumb.src = 'data:image/jpeg;base64,' + record.image;
+                    button.appendChild(thumb);
+                }
+                const copy = document.createElement('span');
+                copy.className = 'min-w-0';
+                const when = document.createElement('span');
+                when.className = 'block text-sm text-emerald-100';
+                when.textContent = formatWhen(record.at);
+                const snippet = document.createElement('span');
+                snippet.className = 'block text-xs text-slate-400 truncate';
+                snippet.textContent = String(record.text || '').replace(/\s+/g, ' ').slice(0, 42);
+                copy.appendChild(when);
+                copy.appendChild(snippet);
+                button.appendChild(copy);
+                button.addEventListener('click', () => openHistoryDetail(record.id));
+                historyList.appendChild(button);
+            });
+        }
+
+        async function showHistory() {
+            homeArea.classList.add('hidden');
+            historyDetail.classList.add('hidden');
+            historyArea.classList.remove('hidden');
+            historyList.innerHTML = '';
+            try {
+                historyRecords = await loadReadings();
+                renderHistoryList(historyRecords);
+            } catch (err) {
+                const failed = document.createElement('p');
+                failed.className = 'text-sm text-rose-300';
+                failed.textContent = 'この端末の履歴を読めませんでした。';
+                historyList.appendChild(failed);
+            }
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function openHistoryDetail(id) {
+            const record = historyRecords.find((item) => item.id === id);
+            if (!record) return;
+            historyWhen.textContent = formatWhen(record.at);
+            if (record.image) {
+                historyPhoto.src = 'data:image/jpeg;base64,' + record.image;
+                historyPhoto.classList.remove('hidden');
+            } else {
+                historyPhoto.removeAttribute('src');
+                historyPhoto.classList.add('hidden');
+            }
+            renderReport(record.text, historyText);
+            historyArea.classList.add('hidden');
+            historyDetail.classList.remove('hidden');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
         const VIEWFINDER_URL = 'https://htmlpreview.github.io/?https://github.com/nobu5129maki-crypto/ninsougaku/blob/cursor/xserver-basic-auth-846d/camera.html';
@@ -353,7 +544,7 @@
 
         async function analyzeFaceOnce(base64Image) {
             const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 40000);
+            const timer = setTimeout(() => controller.abort(), 52000);
             try {
                 // ドメイン直下でもサブフォルダでも動く相対パス。ログインのクッキーも付ける。
                 const response = await fetch('api/analyze.php', {
@@ -408,6 +599,8 @@
         function showResult(message, isError) {
             loading.classList.add('hidden');
             scanLine.style.display = 'none';
+            savedNote.classList.add('hidden');
+            savedNote.textContent = '';
             if (isError) {
                 diagnosisContent.innerHTML = '<p>' + escapeHtml(message) + '</p>';
             } else {
@@ -433,6 +626,14 @@
             try {
                 const diagnosis = await analyzeFace(base64Image);
                 showResult(diagnosis, false);
+                try {
+                    const saved = await saveReading(base64Image, diagnosis);
+                    savedNote.textContent = 'この端末に残しました。' + formatWhen(saved.at);
+                    savedNote.classList.remove('hidden');
+                } catch (err) {
+                    savedNote.textContent = '画面には出ていますが、この端末には残せませんでした。';
+                    savedNote.classList.remove('hidden');
+                }
             } catch (err) {
                 showResult(err.message || '鑑定できませんでした。', true);
             }
@@ -441,10 +642,16 @@
         resetBtn.addEventListener('click', () => {
             resultArea.classList.add('hidden');
             diagnosisContent.innerHTML = '';
+            savedNote.classList.add('hidden');
+            savedNote.textContent = '';
             captureBtn.style.display = 'flex';
             captureBtn.disabled = !(video.videoWidth > 0 || stillImage);
             window.scrollTo({ top: 0, behavior: 'smooth' });
         });
+
+        document.getElementById('historyOpen').addEventListener('click', showHistory);
+        document.getElementById('historyClose').addEventListener('click', showHome);
+        document.getElementById('historyBack').addEventListener('click', showHistory);
 
         window.onload = function () {
             try {

@@ -4,7 +4,7 @@
 // API キーはブラウザへ出さない。公開ディレクトリの外の config.php か環境変数から読む。
 
 ini_set('display_errors', '0');
-@set_time_limit(42);
+@set_time_limit(48);
 ob_start();
 
 function ninsougaku_respond($status, $body)
@@ -36,13 +36,33 @@ function ninsougaku_slice($value, $limit)
 
 function ninsougaku_prompt()
 {
+    $lenses = array(
+        '今回は眉の形と目の左右差から入り、そのあと鼻と口へ進んでください。',
+        '今回は額の広さと頬の高さ、輪郭の左右の違いを先に見てください。',
+        '今回は目尻と口角の上がり方、あごの左右の差から印象を語ってください。',
+        '今回は鼻筋と小鼻、人中と唇の厚みの違いを丁寧に見てください。',
+        '今回は顔の上半分と下半分のバランスと、耳の付き方にも触れてください。',
+        '今回はほお骨の出方と目の大きさの左右差、口もとのゆるみから入ってください。',
+    );
+    $tones = array(
+        '語り口は静かに寄り添う調子にしてください。',
+        '語り口は向かい合って話すような明るい調子にしてください。',
+        '語り口は情景が浮かぶ、少し長めの文章にしてください。',
+        '語り口は率直で、強みも偏りもやわらかく言ってください。',
+    );
+    $lens = $lenses[random_int(0, count($lenses) - 1)];
+    $tone = $tones[random_int(0, count($tones) - 1)];
     return "これは顔写真です。娯楽としての人相占いです。医療診断や身元の特定はしないでください。\n"
         . "顔が少しでも写っていれば読んでください。顔がまったくないときだけ、正面を向くよう短く案内してください。\n"
+        . $lens . "\n"
+        . "写真に写っている部位だけを具体的に書いてください。額、眉、目、鼻、口、輪郭、左右の差、顔全体の印象のうち、見えるものに触れてください。見えない部位は書かないでください。\n"
         . "次の3つの見出しだけを、一字も変えず、それぞれ独立した行として書いてください。見出しに # や * は付けないでください。\n"
         . "顔から読み取れる性格\n"
         . "いまの運気\n"
         . "これからへのアドバイス\n"
-        . "各見出しのあとに、丁寧な語りかける口調で2文ずつ書いてください。";
+        . "各見出しのあとに、空行を挟んで4文以上書いてください。性格では部位と左右差を性格につなげ、運気では今の表情の印象と流れを、アドバイスではその顔立ちに合わせた次の過ごし方を書いてください。\n"
+        . $tone . "\n"
+        . "前と同じ顔でも、今回の視点に合わせて言い回しを変えてください。定型文の繰り返しは避けてください。";
 }
 
 function ninsougaku_reading_text($result)
@@ -217,8 +237,8 @@ function ninsougaku_gemini_once($apiKey, $model, $image, $timeout)
             ),
         ),
         'generationConfig' => array(
-            'temperature' => 0.4,
-            'maxOutputTokens' => 1200,
+            'temperature' => 0.9,
+            'maxOutputTokens' => 1800,
             'thinkingConfig' => array('thinkingBudget' => 0),
         ),
     );
@@ -313,7 +333,7 @@ if (!function_exists('curl_init')) {
 
 $last = array('kind' => 'bad', 'text' => '', 'status' => 0);
 for ($try = 0; $try < 3; $try++) {
-    $last = ninsougaku_gemini_once($apiKey, 'gemini-2.5-flash', $image, 12);
+    $last = ninsougaku_gemini_once($apiKey, 'gemini-2.5-flash', $image, 16);
     if ($last['kind'] === 'ok') {
         ninsougaku_respond(200, array('text' => $last['text']));
     }
