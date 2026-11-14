@@ -4,7 +4,7 @@
 // API キーはブラウザへ出さない。公開ディレクトリの外の config.php か環境変数から読む。
 
 ini_set('display_errors', '0');
-@set_time_limit(40);
+@set_time_limit(42);
 ob_start();
 
 function ninsougaku_respond($status, $body)
@@ -14,6 +14,9 @@ function ninsougaku_respond($status, $body)
     }
     http_response_code($status);
     header('Content-Type: application/json; charset=UTF-8');
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+    header('Expires: 0');
     $json = json_encode($body, JSON_UNESCAPED_UNICODE);
     if ($json === false) {
         $json = '{"error":"鑑定中に問題が起きました。少し待ってから、もう一度お試しください。"}';
@@ -308,15 +311,9 @@ if (!function_exists('curl_init')) {
     ninsougaku_respond(500, array('error' => '鑑定中に問題が起きました。少し待ってから、もう一度お試しください。'));
 }
 
-$last = ninsougaku_gemini_once($apiKey, 'gemini-2.5-flash', $image, 20);
-if ($last['kind'] === 'ok') {
-    ninsougaku_respond(200, array('text' => $last['text']));
-}
-if ($last['kind'] === 'blocked') {
-    ninsougaku_respond(422, array('error' => 'この画像では鑑定できませんでした。顔がはっきり写るようにして、もう一度お試しください。'));
-}
-if ($last['kind'] === 'busy' || $last['kind'] === 'empty' || $last['kind'] === 'bad') {
-    $last = ninsougaku_gemini_once($apiKey, 'gemini-2.5-flash', $image, 15);
+$last = array('kind' => 'bad', 'text' => '', 'status' => 0);
+for ($try = 0; $try < 3; $try++) {
+    $last = ninsougaku_gemini_once($apiKey, 'gemini-2.5-flash', $image, 12);
     if ($last['kind'] === 'ok') {
         ninsougaku_respond(200, array('text' => $last['text']));
     }

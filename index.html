@@ -351,13 +351,15 @@
             return base64 || null;
         }
 
-        async function analyzeFace(base64Image) {
+        async function analyzeFaceOnce(base64Image) {
             const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 45000);
+            const timer = setTimeout(() => controller.abort(), 40000);
             try {
-                // ドメイン直下でもサブフォルダでも動く相対パス。ルート絶対パスは使わない
+                // ドメイン直下でもサブフォルダでも動く相対パス。ログインのクッキーも付ける。
                 const response = await fetch('api/analyze.php', {
                     method: 'POST',
+                    credentials: 'same-origin',
+                    cache: 'no-store',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ image: base64Image, mimeType: 'image/jpeg' }),
                     signal: controller.signal
@@ -378,6 +380,29 @@
             } finally {
                 clearTimeout(timer);
             }
+        }
+
+        async function analyzeFace(base64Image) {
+            let lastError = null;
+            for (let attempt = 0; attempt < 2; attempt++) {
+                if (attempt > 0) {
+                    const note = document.querySelector('#loading p');
+                    if (note) note.textContent = 'もう一度鑑定しています';
+                }
+                try {
+                    return await analyzeFaceOnce(base64Image);
+                } catch (err) {
+                    lastError = err;
+                    const message = err && err.message ? err.message : '';
+                    const retryable = message.indexOf('時間がかかりすぎ') !== -1
+                        || message.indexOf('混み合') !== -1
+                        || message.indexOf('得られません') !== -1
+                        || message.indexOf('受け取れません') !== -1
+                        || message.indexOf('鑑定できませんでした') !== -1;
+                    if (!retryable || attempt === 1) throw err;
+                }
+            }
+            throw lastError || new Error('鑑定できませんでした。もう一度お試しください。');
         }
 
         function showResult(message, isError) {
