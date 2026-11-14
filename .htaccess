@@ -1,17 +1,10 @@
-# Basic 認証は、このフォルダの画面（index.html）と api/analyze.php の両方にかかります。
-# ★置き換え: 次のパスを、サーバー上の .htpasswd の絶対パスにする（このままだと 500 になります）。
-# サーバーパネル「アクセス制限」を ON にしたあと、追記される実パスを使ってください。
-# よくある形: /home/サーバーID/ドメイン名/htpasswd/public_html/.htpasswd
-AuthType Basic
-AuthName "Ninsougaku"
-AuthUserFile /home/SERVER_ID/DOMAIN/htpasswd/.htpasswd
-AuthGroupFile /dev/null
-Require valid-user
+# 入口は index.php のログイン画面。ブラウザの認証ダイアログは出さない。
+DirectoryIndex index.php
 
 # ディレクトリ一覧を出さない
 Options -Indexes
 
-# 設定ファイルを公開フォルダに置いても中身は配信しない
-<FilesMatch "^(config\.php|config\.sample\.php|\.htpasswd|\.env)$">
+# 設定と、ログイン前に中身を返したくないファイル
+<FilesMatch "^(config\.php|config\.sample\.php|\.htpasswd|\.env|auth\.php|index\.html)$">
   Require all denied
 </FilesMatch>

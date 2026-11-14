@@ -169,6 +169,11 @@ if ($method !== 'POST') {
     ninsougaku_respond(405, array('error' => 'この操作はできません。'));
 }
 
+require dirname(__DIR__) . '/auth.php';
+if (!ninsougaku_logged_in()) {
+    ninsougaku_respond(401, array('error' => 'ログインしてください。'));
+}
+
 $apiKey = ninsougaku_api_key();
 if ($apiKey === '') {
     ninsougaku_respond(500, array('error' => 'サーバーにAPIキーが設定されていません。'));

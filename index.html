@@ -32,11 +32,33 @@
             border: 1px solid rgba(255, 255, 255, 0.1);
         }
 
-        #video {
+        #video,
+        #shot {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
             width: 100%;
-            height: auto;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        #video {
             transform: scaleX(-1);
             background: #000;
+        }
+
+        #guide {
+            position: absolute;
+            z-index: 30;
+            top: 50%;
+            left: 50%;
+            width: min(16rem, 78%);
+            height: min(20rem, 86%);
+            transform: translate(-50%, -50%);
+            border: 3px solid rgba(52, 211, 153, 0.95);
+            border-radius: 9999px;
+            box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.5);
+            pointer-events: none;
         }
 
         .scan-line {
@@ -49,7 +71,7 @@
             box-shadow: 0 0 20px 5px rgba(16, 185, 129, 0.6);
             animation: scan 3s infinite ease-in-out;
             display: none;
-            z-index: 10;
+            z-index: 20;
         }
 
         @keyframes scan {
@@ -114,19 +136,22 @@
             <h1 class="text-3xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-blue-500">
                 AI 人相鑑定
             </h1>
-            <p class="text-slate-400 text-sm">カメラに顔を映して、運命の解析を開始してください</p>
+            <p class="text-slate-400 text-sm">顔を撮影して、運命の解析を開始してください</p>
         </header>
 
         <!-- カメラセクション -->
         <div class="video-container glass-panel aspect-[4/5] flex items-center justify-center relative">
             <video id="video" autoplay playsinline muted class="rounded-2xl"></video>
+            <img id="shot" alt="" class="hidden rounded-2xl">
             <canvas id="canvas" class="hidden"></canvas>
             <div id="scanLine" class="scan-line"></div>
-            
-            <div id="guide" class="absolute border-2 border-emerald-500/20 rounded-full w-64 h-80 pointer-events-none flex flex-col items-center justify-end pb-8">
-                <span class="text-[10px] text-emerald-400/50 font-bold uppercase tracking-widest">Digital Analysis Zone</span>
+            <div id="guide" class="pointer-events-none flex flex-col items-center justify-end pb-6">
+                <span class="text-xs text-emerald-100 font-bold tracking-wide">顔を枠内に</span>
             </div>
         </div>
+
+        <input id="cameraFile" type="file" accept="image/*" capture="user" class="hidden">
+        <button type="button" id="openCamera" class="hidden w-full bg-white/10 text-emerald-100 font-bold py-4 rounded-2xl border border-emerald-400/40">カメラで撮影</button>
 
         <p id="cameraStatus" class="hidden text-center text-sm text-rose-300"></p>
 
@@ -231,9 +256,47 @@
             diagnosisContent.innerHTML = html.join('') || '<p>鑑定結果が得られませんでした。</p>';
         }
 
+        function enableFileCamera() {
+            document.getElementById('openCamera').classList.remove('hidden');
+        }
+
+        function useShot(file) {
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                const img = new Image();
+                img.onload = () => {
+                    const maxWidth = 960;
+                    const scale = img.width > maxWidth ? maxWidth / img.width : 1;
+                    canvas.width = Math.round(img.width * scale);
+                    canvas.height = Math.round(img.height * scale);
+                    const context = canvas.getContext('2d');
+                    context.setTransform(1, 0, 0, 1, 0, 0);
+                    context.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    const shot = document.getElementById('shot');
+                    shot.src = canvas.toDataURL('image/jpeg', 0.85);
+                    shot.classList.remove('hidden');
+                    video.classList.add('hidden');
+                    stillReady = true;
+                    captureBtn.disabled = false;
+                    showStatus('');
+                };
+                img.src = reader.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
         async function initCamera() {
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                showStatus('このブラウザではカメラを使えません。');
+            const fileInput = document.getElementById('cameraFile');
+            const openCamera = document.getElementById('openCamera');
+            openCamera.addEventListener('click', () => {
+                fileInput.setAttribute('capture', 'user');
+                fileInput.click();
+            });
+            fileInput.addEventListener('change', () => useShot(fileInput.files && fileInput.files[0]));
+            const liveOk = window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
+            if (!liveOk) {
+                enableFileCamera();
                 return;
             }
             try {
@@ -251,11 +314,19 @@
                 showStatus('');
             } catch (err) {
                 captureBtn.disabled = true;
-                showStatus('カメラを起動できませんでした。ブラウザのカメラ許可を確認してください。');
+                enableFileCamera();
+                showStatus('カメラの許可が必要です。撮影ボタンから顔写真を選んでください。');
             }
         }
 
+        let stillReady = false;
+
         function captureFrame() {
+            if (stillReady && canvas.width > 0) {
+                const stillUrl = canvas.toDataURL('image/jpeg', 0.85);
+                const stillImage = stillUrl.split(',')[1];
+                return stillImage || null;
+            }
             const width = video.videoWidth;
             const height = video.videoHeight;
             if (!width || !height) return null;
@@ -338,7 +409,19 @@
             window.scrollTo({ top: 0, behavior: 'smooth' });
         });
 
-        window.onload = initCamera;
+        window.onload = function () {
+            try {
+                var pendingId = sessionStorage.getItem('ninsougaku_pending_id');
+                var pendingPassword = sessionStorage.getItem('ninsougaku_pending_password');
+                if (pendingId && pendingPassword) {
+                    localStorage.setItem('ninsougaku_login_id', pendingId);
+                    localStorage.setItem('ninsougaku_login_password', pendingPassword);
+                    sessionStorage.removeItem('ninsougaku_pending_id');
+                    sessionStorage.removeItem('ninsougaku_pending_password');
+                }
+            } catch (err) {}
+            initCamera();
+        };
     </script>
 </body>
 </html>
