@@ -1,0 +1,10 @@
+# 入口は index.php のログイン画面。ブラウザの認証ダイアログは出さない。
+DirectoryIndex index.php
+
+# ディレクトリ一覧を出さない
+Options -Indexes
+
+# 設定と、ログイン前に中身を返したくないファイル
+<FilesMatch "^(config\.php|config\.sample\.php|\.htpasswd|\.env|auth\.php|index\.html)$">
+  Require all denied
+</FilesMatch>

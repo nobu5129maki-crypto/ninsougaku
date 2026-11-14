@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>顔を枠内に | AI 人相鑑定</title>
+    <style>
+        html, body {
+            margin: 0;
+            height: 100%;
+            background: #0f172a;
+            color: #f8fafc;
+            font-family: "Noto Sans JP", sans-serif;
+        }
+        .stage {
+            position: relative;
+            height: 100%;
+            overflow: hidden;
+            background: #000;
+        }
+        #video {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+            background: #000;
+            z-index: 1;
+        }
+        #guide {
+            position: absolute;
+            z-index: 40;
+            top: 46%;
+            left: 50%;
+            width: min(16rem, 78vw);
+            height: min(22rem, 62vh);
+            transform: translate(-50%, -50%);
+            border: 3px solid rgba(52, 211, 153, 0.95);
+            border-radius: 9999px;
+            box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.45);
+            pointer-events: none;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            padding-bottom: 1rem;
+        }
+        #guide span {
+            background: rgba(15, 23, 42, 0.6);
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-size: 13px;
+            font-weight: 700;
+        }
+        .bar {
+            position: absolute;
+            z-index: 50;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        button {
+            width: 100%;
+            border: 0;
+            border-radius: 16px;
+            padding: 16px;
+            font-size: 17px;
+            font-weight: 700;
+            color: white;
+            background: linear-gradient(90deg, #10b981, #2563eb);
+        }
+        button:disabled {
+            opacity: 0.45;
+        }
+        #startBtn {
+            background: rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(52, 211, 153, 0.7);
+        }
+        #status {
+            margin: 0;
+            text-align: center;
+            font-size: 13px;
+            color: #a7f3d0;
+        }
+    </style>
+</head>
+<body>
+    <div class="stage">
+        <video id="video" autoplay playsinline muted></video>
+        <div id="guide"><span>顔を枠内に</span></div>
+        <div class="bar">
+            <p id="status">枠が消えない画面です。顔を合わせてください。</p>
+            <button type="button" id="startBtn">カメラを開始</button>
+            <button type="button" id="shotBtn" disabled>この顔で撮る</button>
+        </div>
+    </div>
+    <script>
+        const video = document.getElementById('video');
+        const startBtn = document.getElementById('startBtn');
+        const shotBtn = document.getElementById('shotBtn');
+        const status = document.getElementById('status');
+        let stream = null;
+
+        function say(text) {
+            status.textContent = text;
+        }
+
+        async function startCamera() {
+            if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                say('この画面ではカメラを使えません。元の画面に戻って、もう一度開いてください。');
+                return;
+            }
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'user', width: { ideal: 640 } },
+                    audio: false
+                });
+                video.srcObject = stream;
+                await video.play();
+                shotBtn.disabled = false;
+                startBtn.style.display = 'none';
+                say('顔を枠内に合わせて、「この顔で撮る」を押してください。');
+            } catch (err) {
+                shotBtn.disabled = true;
+                say('カメラの使用を許可してから、もう一度「カメラを開始」を押してください。');
+            }
+        }
+
+        function takePhoto() {
+            const width = video.videoWidth;
+            const height = video.videoHeight;
+            if (!width || !height) {
+                say('カメラの準備ができていません。少し待ってから、もう一度押してください。');
+                return;
+            }
+            const maxEdge = 640;
+            const long = Math.max(width, height);
+            const scale = long > maxEdge ? maxEdge / long : 1;
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.round(width * scale);
+            canvas.height = Math.round(height * scale);
+            const context = canvas.getContext('2d');
+            context.setTransform(-1, 0, 0, 1, canvas.width, 0);
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const base64 = canvas.toDataURL('image/jpeg', 0.62).split(',')[1];
+            if (!base64) {
+                say('写真を保存できませんでした。もう一度押してください。');
+                return;
+            }
+            const guide = document.getElementById('guide');
+            guide.style.display = 'flex';
+            let back = '';
+            try {
+                back = decodeURIComponent(location.hash.slice(1));
+            } catch (err) {
+                back = '';
+            }
+            if (!/^https?:\/\/[A-Za-z0-9.-]+(?::[0-9]{1,5})?\/(?:[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=%-]*)?$/.test(back)) {
+                try {
+                    if (document.referrer) {
+                        const from = new URL(document.referrer);
+                        if (from.protocol === 'http:' || from.protocol === 'https:') {
+                            back = from.origin + from.pathname;
+                        }
+                    }
+                } catch (err) {
+                    back = '';
+                }
+            }
+            if (!/^https?:\/\//.test(back)) {
+                say('撮影結果の戻し先が分かりません。元の画面から開き直してください。');
+                return;
+            }
+            if (stream) {
+                stream.getTracks().forEach((track) => track.stop());
+            }
+            window.name = 'ninsougaku-shot:' + base64;
+            say('撮影しました。鑑定の画面に戻ります。');
+            shotBtn.disabled = true;
+            location.replace(back);
+        }
+
+        startBtn.addEventListener('click', startCamera);
+        shotBtn.addEventListener('click', takePhoto);
+        startCamera();
+    </script>
+</body>
+</html>
