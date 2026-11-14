@@ -49,7 +49,7 @@
 
         #guide {
             position: absolute;
-            z-index: 30;
+            z-index: 40;
             top: 50%;
             left: 50%;
             width: min(16rem, 78%);
@@ -57,8 +57,14 @@
             transform: translate(-50%, -50%);
             border: 3px solid rgba(52, 211, 153, 0.95);
             border-radius: 9999px;
-            box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.5);
+            box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.55);
             pointer-events: none;
+        }
+        #guide span {
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+            background: rgba(15, 23, 42, 0.55);
+            border-radius: 999px;
+            padding: 2px 8px;
         }
 
         .scan-line {
@@ -150,8 +156,7 @@
             </div>
         </div>
 
-        <input id="cameraFile" type="file" accept="image/*" capture="user" class="hidden">
-        <button type="button" id="openCamera" class="hidden w-full bg-white/10 text-emerald-100 font-bold py-4 rounded-2xl border border-emerald-400/40">カメラで撮影</button>
+        <button type="button" id="openViewfinder" class="hidden w-full bg-white/10 text-emerald-100 font-bold py-4 rounded-2xl border border-emerald-400/40">枠を見ながら撮影</button>
 
         <p id="cameraStatus" class="hidden text-center text-sm text-rose-300"></p>
 
@@ -256,52 +261,49 @@
             diagnosisContent.innerHTML = html.join('') || '<p>鑑定結果が得られませんでした。</p>';
         }
 
-        function enableFileCamera() {
-            document.getElementById('openCamera').classList.remove('hidden');
+        const VIEWFINDER_URL = 'https://htmlpreview.github.io/?https://github.com/nobu5129maki-crypto/ninsougaku/blob/cursor/xserver-basic-auth-846d/camera.html';
+        let stillReady = false;
+        let stillImage = '';
+
+        function showStill(base64) {
+            stillImage = base64;
+            stillReady = true;
+            const shot = document.getElementById('shot');
+            shot.src = 'data:image/jpeg;base64,' + base64;
+            shot.classList.remove('hidden');
+            video.classList.add('hidden');
+            captureBtn.disabled = false;
+            showStatus('');
         }
 
-        function useShot(file) {
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = () => {
-                const img = new Image();
-                img.onload = () => {
-                    const maxWidth = 960;
-                    const scale = img.width > maxWidth ? maxWidth / img.width : 1;
-                    canvas.width = Math.round(img.width * scale);
-                    canvas.height = Math.round(img.height * scale);
-                    const context = canvas.getContext('2d');
-                    context.setTransform(1, 0, 0, 1, 0, 0);
-                    context.drawImage(img, 0, 0, canvas.width, canvas.height);
-                    const shot = document.getElementById('shot');
-                    shot.src = canvas.toDataURL('image/jpeg', 0.85);
-                    shot.classList.remove('hidden');
-                    video.classList.add('hidden');
-                    stillReady = true;
-                    captureBtn.disabled = false;
-                    showStatus('');
-                };
-                img.src = reader.result;
-            };
-            reader.readAsDataURL(file);
+        function openViewfinder() {
+            const popup = window.open(VIEWFINDER_URL + '#' + encodeURIComponent(location.origin), 'ninsougaku_viewfinder');
+            if (!popup) {
+                showStatus('撮影画面を開けませんでした。ブラウザのポップアップを許可して、もう一度押してください。');
+                return;
+            }
+            showStatus('枠の中に顔を合わせて撮影してください。撮影すると、この画面に戻ります。');
         }
 
         async function initCamera() {
-            const fileInput = document.getElementById('cameraFile');
-            const openCamera = document.getElementById('openCamera');
-            openCamera.addEventListener('click', () => {
-                fileInput.setAttribute('capture', 'user');
-                fileInput.click();
+            const openButton = document.getElementById('openViewfinder');
+            openButton.addEventListener('click', openViewfinder);
+            window.addEventListener('message', (event) => {
+                if (event.origin !== 'https://htmlpreview.github.io') return;
+                const data = event.data || {};
+                if (data.type !== 'ninsougaku-shot' || typeof data.image !== 'string') return;
+                if (data.image.length < 100 || data.image.length > 900000) return;
+                showStill(data.image);
             });
-            fileInput.addEventListener('change', () => useShot(fileInput.files && fileInput.files[0]));
             const liveOk = window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
             if (!liveOk) {
-                enableFileCamera();
+                openButton.classList.remove('hidden');
+                showStatus('枠を見ながら撮影を押すと、顔を合わせる画面が開きます。');
                 return;
             }
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: 'user', width: { ideal: 720 } },
+                    video: { facingMode: 'user', width: { ideal: 640 } },
                     audio: false
                 });
                 video.srcObject = stream;
@@ -314,37 +316,32 @@
                 showStatus('');
             } catch (err) {
                 captureBtn.disabled = true;
-                enableFileCamera();
-                showStatus('カメラの許可が必要です。撮影ボタンから顔写真を選んでください。');
+                openButton.classList.remove('hidden');
+                showStatus('カメラの許可が必要です。枠を見ながら撮影を押してください。');
             }
         }
 
-        let stillReady = false;
-
         function captureFrame() {
-            if (stillReady && canvas.width > 0) {
-                const stillUrl = canvas.toDataURL('image/jpeg', 0.85);
-                const stillImage = stillUrl.split(',')[1];
-                return stillImage || null;
-            }
+            if (stillReady && stillImage) return stillImage;
             const width = video.videoWidth;
             const height = video.videoHeight;
             if (!width || !height) return null;
-            const maxWidth = 960;
-            const scale = width > maxWidth ? maxWidth / width : 1;
+            const maxEdge = 640;
+            const long = Math.max(width, height);
+            const scale = long > maxEdge ? maxEdge / long : 1;
             canvas.width = Math.round(width * scale);
             canvas.height = Math.round(height * scale);
             const context = canvas.getContext('2d');
             context.setTransform(-1, 0, 0, 1, canvas.width, 0);
             context.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.62);
             const base64 = dataUrl.split(',')[1];
             return base64 || null;
         }
 
         async function analyzeFace(base64Image) {
             const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 50000);
+            const timer = setTimeout(() => controller.abort(), 35000);
             try {
                 // ドメイン直下でもサブフォルダでも動く相対パス。ルート絶対パスは使わない
                 const response = await fetch('api/analyze.php', {
@@ -353,9 +350,12 @@
                     body: JSON.stringify({ image: base64Image, mimeType: 'image/jpeg' }),
                     signal: controller.signal
                 });
-                const data = await response.json().catch(() => ({}));
+                const data = await response.json().catch(() => null);
+                if (!data) {
+                    throw new Error('鑑定結果を受け取れませんでした。もう一度お試しください。');
+                }
                 if (!response.ok || !data.text) {
-                    throw new Error(data.error || '通信エラーが発生しました。');
+                    throw new Error(data.error || '鑑定できませんでした。もう一度お試しください。');
                 }
                 return data.text;
             } catch (err) {
@@ -405,7 +405,7 @@
             resultArea.classList.add('hidden');
             diagnosisContent.innerHTML = '';
             captureBtn.style.display = 'flex';
-            captureBtn.disabled = !(video.videoWidth > 0);
+            captureBtn.disabled = !(video.videoWidth > 0 || stillImage);
             window.scrollTo({ top: 0, behavior: 'smooth' });
         });
 

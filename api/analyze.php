@@ -1,13 +1,11 @@
 <?php
 // エックスサーバー（PHP）向けの鑑定 API。
-// 入出力・プロンプト・バリデーション・エラー文は api/analyze.js に合わせる。
+// 入出力は api/analyze.js に合わせる。待ち時間を抑えるため、画像は縮小し、短い返答で返す。
 // API キーはブラウザへ出さない。公開ディレクトリの外の config.php か環境変数から読む。
 
 ini_set('display_errors', '0');
-@set_time_limit(60);
+@set_time_limit(36);
 ob_start();
-
-$MODEL = 'gemini-3.8-flash';
 
 function ninsougaku_respond($status, $body)
 {
@@ -41,7 +39,7 @@ function ninsougaku_prompt()
         . "顔から読み取れる性格\n"
         . "いまの運気\n"
         . "これからへのアドバイス\n"
-        . "各見出しのあとに、丁寧な語りかける口調で2段落書いてください。";
+        . "各見出しのあとに、丁寧な語りかける口調で2文ずつ書いてください。";
 }
 
 function ninsougaku_reading_text($result)
@@ -164,6 +162,113 @@ function ninsougaku_api_key()
     return '';
 }
 
+function ninsougaku_shrink_jpeg($image)
+{
+    $bin = base64_decode($image, true);
+    if ($bin === false || strlen($bin) < 80) {
+        return array('', '顔の画像を読み取れませんでした。もう一度撮り直してください。');
+    }
+    if (strlen($bin) > 1500000) {
+        return array('', '画像が大きすぎます。もう一度お試しください。');
+    }
+    if (!function_exists('imagecreatefromstring') || !function_exists('imagejpeg')) {
+        return array($image, '');
+    }
+    $src = @imagecreatefromstring($bin);
+    if (!$src) {
+        return array('', '顔の画像を読み取れませんでした。もう一度撮り直してください。');
+    }
+    $width = imagesx($src);
+    $height = imagesy($src);
+    $maxEdge = 640;
+    $long = max($width, $height);
+    if ($long > $maxEdge && $long > 0) {
+        $scale = $maxEdge / $long;
+        $nw = max(1, (int) round($width * $scale));
+        $nh = max(1, (int) round($height * $scale));
+        $dst = imagecreatetruecolor($nw, $nh);
+        imagecopyresampled($dst, $src, 0, 0, 0, 0, $nw, $nh, $width, $height);
+        imagedestroy($src);
+        $src = $dst;
+    }
+    ob_start();
+    $wrote = imagejpeg($src, null, 60);
+    $jpeg = ob_get_clean();
+    imagedestroy($src);
+    if (!$wrote || !is_string($jpeg) || strlen($jpeg) < 80) {
+        return array('', '顔の画像を読み取れませんでした。もう一度撮り直してください。');
+    }
+    return array(base64_encode($jpeg), '');
+}
+
+function ninsougaku_gemini_once($apiKey, $model, $image, $timeout)
+{
+    $payload = array(
+        'contents' => array(
+            array(
+                'role' => 'user',
+                'parts' => array(
+                    array('text' => ninsougaku_prompt()),
+                    array('inlineData' => array('mimeType' => 'image/jpeg', 'data' => $image)),
+                ),
+            ),
+        ),
+        'generationConfig' => array(
+            'thinkingConfig' => array('thinkingLevel' => 'low'),
+            'maxOutputTokens' => 1024,
+        ),
+    );
+    $body = json_encode($payload, JSON_UNESCAPED_UNICODE);
+    if ($body === false) {
+        return array('kind' => 'bad', 'text' => '', 'status' => 0);
+    }
+    $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . $model . ':generateContent?key=' . rawurlencode($apiKey);
+    $ch = curl_init($url);
+    $opts = array(
+        CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => array('Content-Type: application/json'),
+        CURLOPT_POSTFIELDS => $body,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_TIMEOUT => $timeout,
+    );
+    if (defined('CURLOPT_IPRESOLVE') && defined('CURL_IPRESOLVE_V4')) {
+        $opts[CURLOPT_IPRESOLVE] = CURL_IPRESOLVE_V4;
+    }
+    curl_setopt_array($ch, $opts);
+    $raw = curl_exec($ch);
+    $errno = curl_errno($ch);
+    $httpStatus = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($raw === false || $errno === 28 || $httpStatus === 0) {
+        return array('kind' => 'timeout', 'text' => '', 'status' => $httpStatus);
+    }
+    $result = json_decode($raw, true);
+    if (!is_array($result)) {
+        $result = array();
+    }
+    if ($httpStatus === 429 || $httpStatus === 503) {
+        return array('kind' => 'busy', 'text' => '', 'status' => $httpStatus);
+    }
+    if ($httpStatus < 200 || $httpStatus >= 300) {
+        $detail = '';
+        if (isset($result['error']['message'])) {
+            $detail = ninsougaku_slice(preg_replace('/AIza[0-9A-Za-z_\-]{10,}/', '[redacted]', $result['error']['message']), 180);
+        }
+        error_log('gemini_error ' . $model . ' ' . $httpStatus . ' ' . $detail);
+        return array('kind' => 'bad', 'text' => '', 'status' => $httpStatus);
+    }
+    if (!empty($result['promptFeedback']['blockReason'])) {
+        return array('kind' => 'blocked', 'text' => '', 'status' => $httpStatus);
+    }
+    $text = ninsougaku_reading_text($result);
+    if ($text === '') {
+        return array('kind' => 'empty', 'text' => '', 'status' => $httpStatus);
+    }
+    return array('kind' => 'ok', 'text' => $text, 'status' => $httpStatus);
+}
+
 $method = isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : '';
 if ($method !== 'POST') {
     ninsougaku_respond(405, array('error' => 'この操作はできません。'));
@@ -186,88 +291,44 @@ if (!is_array($payloadIn)) {
 }
 
 $image = isset($payloadIn['image']) ? $payloadIn['image'] : null;
-$mimeType = (isset($payloadIn['mimeType']) && $payloadIn['mimeType'] === 'image/png') ? 'image/png' : 'image/jpeg';
 if (!is_string($image) || strlen($image) < 100) {
     ninsougaku_respond(400, array('error' => '顔の画像を取得できませんでした。カメラを向けて、もう一度お試しください。'));
 }
-if (strlen($image) > 3500000) {
+if (strlen($image) > 2000000) {
     ninsougaku_respond(413, array('error' => '画像が大きすぎます。もう一度お試しください。'));
 }
 
-$payload = array(
-    'contents' => array(
-        array(
-            'role' => 'user',
-            'parts' => array(
-                array('text' => ninsougaku_prompt()),
-                array('inlineData' => array('mimeType' => $mimeType, 'data' => $image)),
-            ),
-        ),
-    ),
-    'generationConfig' => array(
-        'thinkingConfig' => array('thinkingLevel' => 'low'),
-        'maxOutputTokens' => 2048,
-    ),
-);
-
-$body = json_encode($payload, JSON_UNESCAPED_UNICODE);
-if ($body === false) {
-    ninsougaku_respond(500, array('error' => '鑑定中に問題が起きました。少し待ってから、もう一度お試しください。'));
+list($image, $imageError) = ninsougaku_shrink_jpeg($image);
+if ($imageError !== '') {
+    ninsougaku_respond(400, array('error' => $imageError));
 }
-
-$url = 'https://generativelanguage.googleapis.com/v1beta/models/' . $MODEL . ':generateContent?key=' . rawurlencode($apiKey);
 
 if (!function_exists('curl_init')) {
     ninsougaku_respond(500, array('error' => '鑑定中に問題が起きました。少し待ってから、もう一度お試しください。'));
 }
 
-$ch = curl_init($url);
-curl_setopt_array($ch, array(
-    CURLOPT_POST => true,
-    CURLOPT_HTTPHEADER => array('Content-Type: application/json'),
-    CURLOPT_POSTFIELDS => $body,
-    CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_CONNECTTIMEOUT => 10,
-    CURLOPT_TIMEOUT => 55,
-));
-$raw = curl_exec($ch);
-$errno = curl_errno($ch);
-$httpStatus = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-curl_close($ch);
-
-if ($raw === false || $errno || $httpStatus === 0) {
-    error_log('gemini_error curl ' . $errno);
-    ninsougaku_respond(500, array('error' => '鑑定中に問題が起きました。少し待ってから、もう一度お試しください。'));
-}
-
-$result = json_decode($raw, true);
-if (!is_array($result)) {
-    $result = array();
-}
-
-if ($httpStatus < 200 || $httpStatus >= 300) {
-    $detail = '';
-    if (isset($result['error']['message'])) {
-        $detail = ninsougaku_slice($result['error']['message'], 300);
+$attempts = array(
+    array('gemini-3.5-flash', 18),
+    array('gemini-3.8-flash', 8),
+);
+$last = array('kind' => 'bad', 'text' => '', 'status' => 0);
+foreach ($attempts as $attempt) {
+    $last = ninsougaku_gemini_once($apiKey, $attempt[0], $image, $attempt[1]);
+    if ($last['kind'] === 'ok') {
+        ninsougaku_respond(200, array('text' => $last['text']));
     }
-    $statusName = '';
-    if (isset($result['error']['status'])) {
-        $statusName = (string) $result['error']['status'];
+    if ($last['kind'] === 'blocked') {
+        ninsougaku_respond(422, array('error' => 'この画像では鑑定できませんでした。顔がはっきり写るようにして、もう一度お試しください。'));
     }
-    error_log('gemini_error ' . $httpStatus . ' ' . $statusName . ' ' . $detail);
-    $friendly = ($httpStatus === 429 || $httpStatus === 503)
-        ? 'いま鑑定が混み合っています。少し待ってから、もう一度お試しください。'
-        : '鑑定できませんでした。顔が映っていることを確認して、もう一度お試しください。';
-    ninsougaku_respond(502, array('error' => $friendly));
 }
 
-if (!empty($result['promptFeedback']['blockReason'])) {
-    ninsougaku_respond(422, array('error' => 'この画像では鑑定できませんでした。顔がはっきり写るようにして、もう一度お試しください。'));
+if ($last['kind'] === 'timeout') {
+    ninsougaku_respond(504, array('error' => '鑑定に時間がかかりすぎました。もう一度お試しください。'));
 }
-
-$text = ninsougaku_reading_text($result);
-if ($text === '') {
+if ($last['kind'] === 'busy') {
+    ninsougaku_respond(503, array('error' => 'いま鑑定が混み合っています。少し待ってから、もう一度お試しください。'));
+}
+if ($last['kind'] === 'empty') {
     ninsougaku_respond(502, array('error' => '鑑定結果が得られませんでした。もう一度お試しください。'));
 }
-
-ninsougaku_respond(200, array('text' => $text));
+ninsougaku_respond(502, array('error' => '鑑定できませんでした。顔が映っていることを確認して、もう一度お試しください。'));
